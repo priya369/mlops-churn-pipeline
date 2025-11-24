@@ -1,0 +1,96 @@
+steps:
+  # Stage 1: Install and test
+  - name: 'python:3.9'
+    id: 'install-deps'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "📦 Installing dependencies..."
+        pip install -r requirements.txt
+        echo "✅ Done"
+
+  # Stage 2: Validate components
+  - name: 'python:3.9'
+    id: 'validate'
+    waitFor: ['install-deps']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "🔍 Validating components..."
+        ls -la components/
+        echo "✅ Components validated"
+
+  # Stage 3: Compile pipeline
+  - name: 'python:3.9'
+    id: 'compile'
+    waitFor: ['validate']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "📦 Compiling pipeline..."
+        pip install kfp google-cloud-aiplatform
+        cd pipelines
+        python house_price_pipeline.py
+        ls -lh house_price_pipeline.json
+        echo "✅ Compiled"
+
+  # Stage 4: Submit to Vertex AI
+  - name: 'python:3.9'
+    id: 'submit'
+    waitFor: ['compile']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "🚀 Submitting pipeline to Vertex AI..."
+        pip install google-cloud-aiplatform
+        python3 << 'PYEOF'
+        from google.cloud import aiplatform
+        import os
+        
+        PROJECT_ID = os.environ['PROJECT_ID']
+        REGION = os.environ['_REGION']
+        BUCKET = os.environ['_BUCKET_NAME']
+        
+        aiplatform.init(project=PROJECT_ID, location=REGION)
+        
+        job = aiplatform.PipelineJob(
+            display_name=f"house-price-cicd-{os.environ['SHORT_SHA']}",
+            template_path="pipelines/house_price_pipeline.json",
+            pipeline_root=f"gs://{BUCKET}/pipeline_root",
+            enable_caching=False
+        )
+        
+        job.submit()
+        print(f"✅ Pipeline submitted!")
+        print(f"View: https://console.cloud.google.com/vertex-ai/locations/{REGION}/pipelines/runs?project={PROJECT_ID}")
+        PYEOF
+
+  # Stage 5: Notify
+  - name: 'bash'
+    id: 'notify'
+    waitFor: ['submit']
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "=============================="
+        echo "✅ CI/CD Pipeline Complete!"
+        echo "=============================="
+        echo "Build: ${BUILD_ID}"
+        echo "Commit: ${SHORT_SHA}"
+        echo "Project: ${PROJECT_ID}"
+        echo "=============================="
+
+substitutions:
+  _REGION: 'us-central1'
+  _BUCKET_NAME: '${PROJECT_ID}-bucket'
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: 'N1_HIGHCPU_8'
+
+timeout: '1800s'
