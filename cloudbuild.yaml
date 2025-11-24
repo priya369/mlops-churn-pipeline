@@ -1,6 +1,3 @@
-cd ~/mlops-churn-pipeline
-
-cat > cloudbuild.yaml << 'EOF'
 steps:
   # Stage 1: Install dependencies
   - name: 'python:3.9'
