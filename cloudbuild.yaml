@@ -129,7 +129,7 @@ steps:
 # Custom substitutions (must start with _)
 substitutions:
   _REGION: 'us-central1'
-  _BUCKET_NAME: '${PROJECT_ID}-bucket'
+  _BUCKET_NAME: '${PROJECT_ID}-mlops'
 
 options:
   logging: CLOUD_LOGGING_ONLY
