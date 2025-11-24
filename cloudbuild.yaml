@@ -51,9 +51,9 @@ steps:
         from google.cloud import aiplatform
         import os
         
-        PROJECT_ID = os.environ['PROJECT_ID']
-        REGION = os.environ['_REGION']
-        BUCKET = os.environ['_BUCKET_NAME']
+        PROJECT_ID = "data-oasis-472909-u4"
+        REGION = "us-central1"
+        BUCKET = "data-oasis-472909-u4-mlops"
         
         aiplatform.init(project=PROJECT_ID, location=REGION)
         
