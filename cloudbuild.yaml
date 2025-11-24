@@ -7,6 +7,7 @@ steps:
       - '-c'
       - |
         echo "📦 Installing dependencies..."
+        pip install --upgrade pip
         pip install -r requirements.txt
         echo "✅ Done"
 
@@ -33,34 +34,55 @@ steps:
         echo "📦 Compiling pipeline..."
         pip install kfp google-cloud-aiplatform
         cd pipelines
-        python house_price_pipeline.py
-        ls -lh house_price_pipeline.json
+        python house_price_pipeline.py || python churn_pipeline.py
+        ls -lh *.json
         echo "✅ Compiled"
 
   # Stage 4: Submit to Vertex AI
   - name: 'python:3.9'
     id: 'submit'
     waitFor: ['compile']
+    env:
+      - 'PROJECT_ID=$PROJECT_ID'
+      - 'REGION=$_REGION'
+      - 'BUCKET_NAME=$_BUCKET_NAME'
+      - 'SHORT_SHA=$SHORT_SHA'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
         echo "🚀 Submitting pipeline to Vertex AI..."
         pip install google-cloud-aiplatform
-        python3 << 'PYEOF'
+        
+        cat > submit_pipeline.py << 'PYEOF'
         from google.cloud import aiplatform
         import os
+        import glob
         
-        PROJECT_ID = "data-oasis-472909-u4"
-        REGION = "us-central1"
-        BUCKET = "data-oasis-472909-u4-mlops"
+        PROJECT_ID = os.environ['PROJECT_ID']
+        REGION = os.environ['REGION']
+        BUCKET_NAME = os.environ['BUCKET_NAME']
+        SHORT_SHA = os.environ['SHORT_SHA']
+        
+        print(f"Project: {PROJECT_ID}")
+        print(f"Region: {REGION}")
+        print(f"Bucket: {BUCKET_NAME}")
         
         aiplatform.init(project=PROJECT_ID, location=REGION)
         
+        # Find the compiled pipeline JSON
+        pipeline_files = glob.glob('pipelines/*.json')
+        if not pipeline_files:
+            print("❌ No pipeline JSON found!")
+            exit(1)
+        
+        pipeline_path = pipeline_files[0]
+        print(f"Using pipeline: {pipeline_path}")
+        
         job = aiplatform.PipelineJob(
-            display_name=f"house-price-cicd-{os.environ['SHORT_SHA']}",
-            template_path="pipelines/house_price_pipeline.json",
-            pipeline_root=f"gs://{BUCKET}/pipeline_root",
+            display_name=f"mlops-cicd-{SHORT_SHA}",
+            template_path=pipeline_path,
+            pipeline_root=f"gs://{BUCKET_NAME}/pipeline_root",
             enable_caching=False
         )
         
@@ -68,6 +90,8 @@ steps:
         print(f"✅ Pipeline submitted!")
         print(f"View: https://console.cloud.google.com/vertex-ai/locations/{REGION}/pipelines/runs?project={PROJECT_ID}")
         PYEOF
+        
+        python submit_pipeline.py
 
   # Stage 5: Notify
   - name: 'bash'
@@ -92,5 +116,6 @@ substitutions:
 options:
   logging: CLOUD_LOGGING_ONLY
   machineType: 'E2_HIGHCPU_8'
+  substitution_option: 'ALLOW_LOOSE'
 
 timeout: '1800s'
