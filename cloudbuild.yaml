@@ -46,6 +46,11 @@ steps:
   - name: 'python:3.10'
     id: 'submit'
     waitFor: ['compile']
+    env:
+      - 'PROJECT_ID=$PROJECT_ID'
+      - '_REGION=$_REGION'
+      - '_BUCKET_NAME=$_BUCKET_NAME'
+      - 'SHORT_SHA=$SHORT_SHA'
     entrypoint: 'bash'
     args:
       - '-c'
@@ -54,6 +59,12 @@ steps:
         
         # Install Vertex AI SDK with pipeline support
         pip install "google-cloud-aiplatform[pipelines]"
+        
+        # Debug: Show environment variables
+        echo "PROJECT_ID: $PROJECT_ID"
+        echo "_REGION: $_REGION"
+        echo "_BUCKET_NAME: $_BUCKET_NAME"
+        echo "SHORT_SHA: $SHORT_SHA"
         
         # Find pipeline JSON
         PIPELINE_FILE=$$(ls pipelines/*.json | head -1)
@@ -65,15 +76,20 @@ steps:
         import os
         import glob
         
-        # Get variables from Cloud Build
+        # Get variables from environment
         PROJECT_ID = os.environ['PROJECT_ID']
         REGION = os.environ.get('_REGION', 'us-central1')
-        BUCKET_NAME = os.environ.get('_BUCKET_NAME', f"{PROJECT_ID}-bucket")
+        BUCKET_NAME = os.environ.get('_BUCKET_NAME')
         SHORT_SHA = os.environ.get('SHORT_SHA', 'latest')
+        
+        # If bucket name not provided, construct it
+        if not BUCKET_NAME:
+            BUCKET_NAME = f"{PROJECT_ID}-bucket"
         
         print(f"Project: {PROJECT_ID}")
         print(f"Region: {REGION}")
         print(f"Bucket: {BUCKET_NAME}")
+        print(f"Commit: {SHORT_SHA}")
         
         # Find pipeline file
         pipeline_files = glob.glob('pipelines/*.json')
