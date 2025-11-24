@@ -122,6 +122,3 @@ options:
   substitution_option: 'ALLOW_LOOSE'
 
 timeout: '1800s'
-EOF
-
-echo "✅ cloudbuild.yaml updated with pipeline dependencies"
