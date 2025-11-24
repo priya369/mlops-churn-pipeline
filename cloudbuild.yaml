@@ -1,6 +1,6 @@
 steps:
   # Stage 1: Install dependencies
-  - name: 'python:3.9'
+  - name: 'python:3.10'
     id: 'install-deps'
     entrypoint: 'bash'
     args:
@@ -12,7 +12,7 @@ steps:
         echo "✅ Done"
 
   # Stage 2: Validate components
-  - name: 'python:3.9'
+  - name: 'python:3.10'
     id: 'validate'
     waitFor: ['install-deps']
     entrypoint: 'bash'
@@ -24,7 +24,7 @@ steps:
         echo "✅ Components validated"
 
   # Stage 3: Compile pipeline
-  - name: 'python:3.9'
+  - name: 'python:3.10'
     id: 'compile'
     waitFor: ['validate']
     entrypoint: 'bash'
@@ -35,18 +35,17 @@ steps:
         pip install kfp
         cd pipelines
         python house_price_pipeline.py || python churn_pipeline.py
+        
+        # Verify JSON is valid
+        python -m json.tool *.json > /dev/null && echo "✅ Pipeline JSON valid" || echo "❌ Invalid JSON"
+        
         ls -lh *.json
         echo "✅ Compiled"
 
   # Stage 4: Submit to Vertex AI
-  - name: 'python:3.9'
+  - name: 'python:3.10'
     id: 'submit'
     waitFor: ['compile']
-    env:
-      - 'PROJECT_ID=$PROJECT_ID'
-      - 'REGION=$_REGION'
-      - 'BUCKET_NAME=$_BUCKET_NAME'
-      - 'SHORT_SHA=$SHORT_SHA'
     entrypoint: 'bash'
     args:
       - '-c'
@@ -56,44 +55,52 @@ steps:
         # Install Vertex AI SDK with pipeline support
         pip install "google-cloud-aiplatform[pipelines]"
         
-        cat > submit_pipeline.py << 'PYEOF'
+        # Get environment variables
+        PROJECT_ID="${PROJECT_ID}"
+        REGION="${_REGION}"
+        BUCKET_NAME="${_BUCKET_NAME}"
+        SHORT_SHA="${SHORT_SHA}"
+        
+        echo "Project: $PROJECT_ID"
+        echo "Region: $REGION"
+        echo "Bucket: $BUCKET_NAME"
+        
+        # Find pipeline JSON
+        PIPELINE_FILE=$(ls pipelines/*.json | head -1)
+        echo "Pipeline: $PIPELINE_FILE"
+        
+        # Submit pipeline using Python
+        python3 << PYEOF
         from google.cloud import aiplatform
-        import os
-        import glob
         
-        PROJECT_ID = os.environ['PROJECT_ID']
-        REGION = os.environ['REGION']
-        BUCKET_NAME = os.environ['BUCKET_NAME']
-        SHORT_SHA = os.environ['SHORT_SHA']
-        
-        print(f"Project: {PROJECT_ID}")
-        print(f"Region: {REGION}")
-        print(f"Bucket: {BUCKET_NAME}")
+        PROJECT_ID = "${PROJECT_ID}"
+        REGION = "${_REGION}"
+        BUCKET_NAME = "${_BUCKET_NAME}"
+        SHORT_SHA = "${SHORT_SHA}"
+        PIPELINE_FILE = "${PIPELINE_FILE}"
         
         aiplatform.init(project=PROJECT_ID, location=REGION)
         
-        # Find the compiled pipeline JSON
-        pipeline_files = glob.glob('pipelines/*.json')
-        if not pipeline_files:
-            print("❌ No pipeline JSON found!")
-            exit(1)
-        
-        pipeline_path = pipeline_files[0]
-        print(f"Using pipeline: {pipeline_path}")
-        
         job = aiplatform.PipelineJob(
             display_name=f"mlops-cicd-{SHORT_SHA}",
-            template_path=pipeline_path,
+            template_path=PIPELINE_FILE,
             pipeline_root=f"gs://{BUCKET_NAME}/pipeline_root",
+            parameter_values={
+                "project_id": PROJECT_ID,
+                "region": REGION,
+                "bucket_name": BUCKET_NAME,
+                "model_name": "house-price-model",
+                "endpoint_name": "house-price-endpoint"
+            },
             enable_caching=False
         )
         
         job.submit()
-        print(f"✅ Pipeline submitted!")
-        print(f"🔗 View at: https://console.cloud.google.com/vertex-ai/locations/{REGION}/pipelines/runs?project={PROJECT_ID}")
-        PYEOF
         
-        python submit_pipeline.py
+        print(f"✅ Pipeline submitted!")
+        print(f"Job: {job.resource_name}")
+        print(f"View: https://console.cloud.google.com/vertex-ai/locations/{REGION}/pipelines/runs?project={PROJECT_ID}")
+        PYEOF
 
   # Stage 5: Notify
   - name: 'bash'
