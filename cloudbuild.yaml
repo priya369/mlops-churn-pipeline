@@ -1,5 +1,8 @@
+cd ~/mlops-churn-pipeline
+
+cat > cloudbuild.yaml << 'EOF'
 steps:
-  # Stage 1: Install and test
+  # Stage 1: Install dependencies
   - name: 'python:3.9'
     id: 'install-deps'
     entrypoint: 'bash'
@@ -32,7 +35,7 @@ steps:
       - '-c'
       - |
         echo "📦 Compiling pipeline..."
-        pip install kfp google-cloud-aiplatform
+        pip install kfp
         cd pipelines
         python house_price_pipeline.py || python churn_pipeline.py
         ls -lh *.json
@@ -52,7 +55,9 @@ steps:
       - '-c'
       - |
         echo "🚀 Submitting pipeline to Vertex AI..."
-        pip install google-cloud-aiplatform
+        
+        # Install Vertex AI SDK with pipeline support
+        pip install "google-cloud-aiplatform[pipelines]"
         
         cat > submit_pipeline.py << 'PYEOF'
         from google.cloud import aiplatform
@@ -88,7 +93,7 @@ steps:
         
         job.submit()
         print(f"✅ Pipeline submitted!")
-        print(f"View: https://console.cloud.google.com/vertex-ai/locations/{REGION}/pipelines/runs?project={PROJECT_ID}")
+        print(f"🔗 View at: https://console.cloud.google.com/vertex-ai/locations/{REGION}/pipelines/runs?project={PROJECT_ID}")
         PYEOF
         
         python submit_pipeline.py
@@ -107,11 +112,12 @@ steps:
         echo "Build: ${BUILD_ID}"
         echo "Commit: ${SHORT_SHA}"
         echo "Project: ${PROJECT_ID}"
+        echo "Region: ${_REGION}"
         echo "=============================="
 
 substitutions:
   _REGION: 'us-central1'
-  _BUCKET_NAME: '${PROJECT_ID}-bucket'
+  _BUCKET_NAME: '${PROJECT_ID}-mlops'
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -119,3 +125,6 @@ options:
   substitution_option: 'ALLOW_LOOSE'
 
 timeout: '1800s'
+EOF
+
+echo "✅ cloudbuild.yaml updated with pipeline dependencies"
