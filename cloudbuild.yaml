@@ -55,32 +55,39 @@ steps:
         # Install Vertex AI SDK with pipeline support
         pip install "google-cloud-aiplatform[pipelines]"
         
-        # Get environment variables
-        PROJECT_ID="${PROJECT_ID}"
-        REGION="${_REGION}"
-        BUCKET_NAME="${_BUCKET_NAME}"
-        SHORT_SHA="${SHORT_SHA}"
-        
-        echo "Project: $PROJECT_ID"
-        echo "Region: $REGION"
-        echo "Bucket: $BUCKET_NAME"
-        
         # Find pipeline JSON
-        PIPELINE_FILE=$(ls pipelines/*.json | head -1)
-        echo "Pipeline: $PIPELINE_FILE"
+        PIPELINE_FILE=$$(ls pipelines/*.json | head -1)
+        echo "Pipeline: $$PIPELINE_FILE"
         
         # Submit pipeline using Python
-        python3 << PYEOF
+        python3 << 'PYEOF'
         from google.cloud import aiplatform
+        import os
+        import glob
         
-        PROJECT_ID = "${PROJECT_ID}"
-        REGION = "${_REGION}"
-        BUCKET_NAME = "${_BUCKET_NAME}"
-        SHORT_SHA = "${SHORT_SHA}"
-        PIPELINE_FILE = "${PIPELINE_FILE}"
+        # Get variables from Cloud Build
+        PROJECT_ID = os.environ['PROJECT_ID']
+        REGION = os.environ.get('_REGION', 'us-central1')
+        BUCKET_NAME = os.environ.get('_BUCKET_NAME', f"{PROJECT_ID}-bucket")
+        SHORT_SHA = os.environ.get('SHORT_SHA', 'latest')
         
+        print(f"Project: {PROJECT_ID}")
+        print(f"Region: {REGION}")
+        print(f"Bucket: {BUCKET_NAME}")
+        
+        # Find pipeline file
+        pipeline_files = glob.glob('pipelines/*.json')
+        if not pipeline_files:
+            print("❌ No pipeline JSON found!")
+            exit(1)
+        
+        PIPELINE_FILE = pipeline_files[0]
+        print(f"Using: {PIPELINE_FILE}")
+        
+        # Initialize Vertex AI
         aiplatform.init(project=PROJECT_ID, location=REGION)
         
+        # Create and submit pipeline job
         job = aiplatform.PipelineJob(
             display_name=f"mlops-cicd-{SHORT_SHA}",
             template_path=PIPELINE_FILE,
@@ -99,7 +106,7 @@ steps:
         
         print(f"✅ Pipeline submitted!")
         print(f"Job: {job.resource_name}")
-        print(f"View: https://console.cloud.google.com/vertex-ai/locations/{REGION}/pipelines/runs?project={PROJECT_ID}")
+        print(f"🔗 View: https://console.cloud.google.com/vertex-ai/locations/{REGION}/pipelines/runs?project={PROJECT_ID}")
         PYEOF
 
   # Stage 5: Notify
@@ -119,9 +126,10 @@ steps:
         echo "Region: ${_REGION}"
         echo "=============================="
 
+# Custom substitutions (must start with _)
 substitutions:
   _REGION: 'us-central1'
-  _BUCKET_NAME: '${PROJECT_ID}-mlops'
+  _BUCKET_NAME: '${PROJECT_ID}-bucket'
 
 options:
   logging: CLOUD_LOGGING_ONLY
